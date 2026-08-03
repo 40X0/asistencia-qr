@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generar QR · Asistencia</title>
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar no-print">
+  <div class="brand"><span class="dot"></span> Generar QR</div>
+  <nav>
+    <a href="index.html">Volver a la app</a>
+    <button class="link" id="btn-logout" hidden>Salir</button>
+  </nav>
+</div>
+
+<div class="wrap">
+
+  <div class="card no-print" id="login-screen">
+    <h1>Ingresar</h1>
+    <p class="hint">Escribe la contraseña de la app.</p>
+    <label for="login-pass">Contraseña</label>
+    <input type="password" id="login-pass" autocomplete="current-password">
+    <button class="btn" id="btn-login">Ingresar</button>
+    <div id="login-error" class="error-msg" hidden></div>
+  </div>
+
+  <div id="app-screen" hidden>
+
+    <div class="card no-print">
+      <h1>Generar carnets QR</h1>
+      <p class="hint">
+        Pega la lista de alumnos: un alumno por línea, con formato <b>DNI, Nombre completo</b>.<br>
+        Puedes copiar y pegar directo desde tu tabla de Google Docs / Sheets.
+      </p>
+      <label for="csv-input">Lista de alumnos</label>
+      <textarea id="csv-input" placeholder="72345678, Ana María Torres Quispe
+70123456, Luis Fernando Ríos Vega
+71987654, Camila Rodríguez Paredes"></textarea>
+      <button class="btn" id="btn-generar">Generar códigos QR</button>
+      <button class="btn secondary" id="btn-guardar" disabled>Guardar lista en Firebase</button>
+      <div id="msg" class="ok-msg" hidden></div>
+      <div id="msg-error" class="error-msg" hidden></div>
+    </div>
+
+    <div class="card no-print" id="print-actions" hidden>
+      <button class="btn amarillo" id="btn-print">Imprimir / Guardar como PDF</button>
+      <p class="hint">Se abrirá el diálogo de impresión con todos los carnets listos para recortar.</p>
+    </div>
+
+    <div id="qr-output" class="qr-grid"></div>
+
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<script>
+const LS_KEY = 'asistenciaqr_ok';
+const loginScreen = document.getElementById('login-screen');
+const appScreen = document.getElementById('app-screen');
+const btnLogout = document.getElementById('btn-logout');
+const loginError = document.getElementById('login-error');
+
+function entrarApp(){
+  loginScreen.hidden = true;
+  appScreen.hidden = false;
+  btnLogout.hidden = false;
+  asegurarSesion();
+}
+
+document.getElementById('btn-login').addEventListener('click', () => {
+  const pass = document.getElementById('login-pass').value;
+  if(pass === APP_PASSWORD){
+    sessionStorage.setItem(LS_KEY, '1');
+    loginError.hidden = true;
+    entrarApp();
+  } else {
+    loginError.textContent = 'Contraseña incorrecta.';
+    loginError.hidden = false;
+  }
+});
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if(e.key === 'Enter') document.getElementById('btn-login').click();
+});
+btnLogout.addEventListener('click', () => {
+  sessionStorage.removeItem(LS_KEY);
+  location.reload();
+});
+if(sessionStorage.getItem(LS_KEY) === '1'){ entrarApp(); }
+
+// ---------- Parseo y generación de QR ----------
+let ALUMNOS_PARSEADOS = [];
+
+function parsearCSV(texto){
+  return texto.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0)
+    .map(linea => {
+      const sep = linea.includes('\t') ? '\t' : ',';
+      const partes = linea.split(sep);
+      const dni = (partes[0] || '').trim();
+      const nombre = partes.slice(1).join(sep).trim();
+      return { dni, nombre };
+    })
+    .filter(a => a.dni && a.nombre);
+}
+
+document.getElementById('btn-generar').addEventListener('click', () => {
+  const texto = document.getElementById('csv-input').value;
+  ALUMNOS_PARSEADOS = parsearCSV(texto);
+
+  const msg = document.getElementById('msg');
+  const msgErr = document.getElementById('msg-error');
+  msg.hidden = true; msgErr.hidden = true;
+
+  if(ALUMNOS_PARSEADOS.length === 0){
+    msgErr.textContent = 'No se detectaron alumnos. Revisa el formato: DNI, Nombre completo (uno por línea).';
+    msgErr.hidden = false;
+    return;
+  }
+
+  const output = document.getElementById('qr-output');
+  output.innerHTML = '';
+  ALUMNOS_PARSEADOS.forEach(a => {
+    const card = document.createElement('div');
+    card.className = 'qr-card';
+    const holder = document.createElement('div');
+    holder.className = 'qr-holder';
+    card.appendChild(holder);
+    new QRCode(holder, { text: a.dni, width: 120, height: 120, correctLevel: QRCode.CorrectLevel.M });
+    const dniLabel = document.createElement('div');
+    dniLabel.className = 'dni';
+    dniLabel.textContent = 'DNI ' + a.dni;
+    const nombreLabel = document.createElement('div');
+    nombreLabel.className = 'nombre';
+    nombreLabel.textContent = a.nombre;
+    card.appendChild(dniLabel);
+    card.appendChild(nombreLabel);
+    output.appendChild(card);
+  });
+
+  msg.textContent = `Se generaron ${ALUMNOS_PARSEADOS.length} códigos QR.`;
+  msg.hidden = false;
+  document.getElementById('btn-guardar').disabled = false;
+  document.getElementById('print-actions').hidden = false;
+});
+
+document.getElementById('btn-guardar').addEventListener('click', async () => {
+  const msg = document.getElementById('msg');
+  const msgErr = document.getElementById('msg-error');
+  msg.hidden = true; msgErr.hidden = true;
+
+  try {
+    await asegurarSesion();
+    const chunks = [];
+    for(let i=0; i<ALUMNOS_PARSEADOS.length; i+=450){
+      chunks.push(ALUMNOS_PARSEADOS.slice(i, i+450));
+    }
+    for(const chunk of chunks){
+      const batch = db.batch();
+      chunk.forEach(a => {
+        const ref = db.collection('alumnos').doc(a.dni);
+        batch.set(ref, { dni: a.dni, nombre: a.nombre }, { merge: true });
+      });
+      await batch.commit();
+    }
+    msg.textContent = `Se guardaron ${ALUMNOS_PARSEADOS.length} alumnos en Firebase.`;
+    msg.hidden = false;
+  } catch(e){
+    msgErr.textContent = 'Error al guardar: ' + e.message;
+    msgErr.hidden = false;
+  }
+});
+
+document.getElementById('btn-print').addEventListener('click', () => window.print());
+</script>
+
+</body>
+</html>
