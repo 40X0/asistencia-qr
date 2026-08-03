@@ -21,9 +21,9 @@ const APP_PASSWORD = "TALTA2026@";
 
 // Horario de clase (formato 24 horas, "HH:MM")
 const HORARIO = {
-  inicio: "19:00",     // 7:00 PM - desde aquí se puede marcar "presente"
-  tardanza: "19:50",   // 7:50 PM - desde aquí hasta el fin se marca "tardanza"
-  fin: "20:00"          // 8:00 PM - después de esto, quien no escaneó queda "inasistencia"
+  inicio: "07:00",     // 7:00 AM - desde aquí se puede marcar "presente"
+  tardanza: "07:50",   // 7:50 AM - desde aquí hasta el fin se marca "tardanza"
+  fin: "08:00"          // 8:00 AM - después de esto, quien no escaneó queda "inasistencia"
 };
 
 firebase.initializeApp(firebaseConfig);
