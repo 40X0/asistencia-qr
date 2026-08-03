@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel admin · Asistencia QR</title>
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="dot"></span> Panel admin</div>
+  <nav>
+    <a href="index.html">Escanear</a>
+    <a href="generar-qr.html">Generar QR</a>
+    <button class="link" id="btn-logout" hidden>Salir</button>
+  </nav>
+</div>
+
+<div class="wrap">
+
+  <div class="card" id="login-screen">
+    <h1>Ingresar</h1>
+    <p class="hint">Correo y contraseña del administrador (creado en Firebase).</p>
+    <label for="login-email">Correo</label>
+    <input type="email" id="login-email" autocomplete="username">
+    <label for="login-pass">Contraseña</label>
+    <input type="password" id="login-pass" autocomplete="current-password">
+    <button class="btn" id="btn-login">Ingresar</button>
+    <div id="login-error" class="error-msg" hidden></div>
+  </div>
+
+  <div id="app-screen" hidden>
+
+    <div class="top-tabs no-print">
+      <button id="tab-btn-dia" class="active">Por día</button>
+      <button id="tab-btn-alumno">Por alumno</button>
+    </div>
+
+    <!-- VISTA POR DÍA -->
+    <div id="tab-dia">
+      <div class="card">
+        <h2>Asistencia del día</h2>
+        <label for="fecha-input">Fecha</label>
+        <input type="date" id="fecha-input">
+        <p class="hint" style="margin-top:14px;">Toca a un alumno para cambiar su estado (presente, justificado o ausente).</p>
+      </div>
+      <div class="card">
+        <div id="lista-dia"><p class="hint">Cargando...</p></div>
+      </div>
+    </div>
+
+    <!-- VISTA POR ALUMNO -->
+    <div id="tab-alumno" hidden>
+      <div class="card">
+        <h2>Historial por alumno</h2>
+        <label for="alumno-select">Alumno</label>
+        <select id="alumno-select"><option value="">Selecciona un alumno...</option></select>
+      </div>
+      <div class="card">
+        <div id="historial-alumno"><p class="hint">Selecciona un alumno para ver su historial.</p></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Bottom sheet para cambiar estado -->
+<div class="menu-overlay no-print" id="menu-overlay" hidden>
+  <div class="menu-sheet">
+    <h3 id="menu-nombre">Alumno</h3>
+    <p class="hint" id="menu-fecha">Fecha</p>
+    <div class="opt" data-estado="presente"><span class="swatch" style="background:var(--verde)"></span> Marcar presente</div>
+    <div class="opt" data-estado="justificado"><span class="swatch" style="background:var(--amarillo)"></span> Marcar justificado</div>
+    <div class="opt" data-estado="ausente"><span class="swatch" style="background:var(--gris)"></span> Marcar ausente</div>
+    <div class="opt" data-estado="borrar"><span class="swatch" style="background:#fff;border:1px solid var(--line)"></span> Quitar registro</div>
+    <button class="btn ghost small" id="menu-cerrar" style="width:100%; margin-top:8px;">Cancelar</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+
+<script>
+const loginScreen = document.getElementById('login-screen');
+const appScreen = document.getElementById('app-screen');
+const btnLogout = document.getElementById('btn-logout');
+const loginError = document.getElementById('login-error');
+
+document.getElementById('btn-login').addEventListener('click', () => {
+  loginError.hidden = true;
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  auth.signInWithEmailAndPassword(email, pass).catch(err => {
+    loginError.textContent = 'No se pudo ingresar: ' + err.code;
+    loginError.hidden = false;
+  });
+});
+btnLogout.addEventListener('click', () => auth.signOut());
+
+auth.onAuthStateChanged(user => {
+  loginScreen.hidden = !!user;
+  appScreen.hidden = !user;
+  btnLogout.hidden = !user;
+  if(user){
+    cargarAlumnos();
+    cargarDia();
+  }
+});
+
+// ---------- Tabs ----------
+const tabBtnDia = document.getElementById('tab-btn-dia');
+const tabBtnAlumno = document.getElementById('tab-btn-alumno');
+const tabDia = document.getElementById('tab-dia');
+const tabAlumno = document.getElementById('tab-alumno');
+
+tabBtnDia.addEventListener('click', () => {
+  tabBtnDia.classList.add('active'); tabBtnAlumno.classList.remove('active');
+  tabDia.hidden = false; tabAlumno.hidden = true;
+});
+tabBtnAlumno.addEventListener('click', () => {
+  tabBtnAlumno.classList.add('active'); tabBtnDia.classList.remove('active');
+  tabAlumno.hidden = false; tabDia.hidden = true;
+});
+
+// ---------- Utilidades ----------
+function hoyStr(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function horaStr(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+let ALUMNOS = []; // {dni, nombre}
+
+async function cargarAlumnos(){
+  const snap = await db.collection('alumnos').orderBy('nombre').get();
+  ALUMNOS = snap.docs.map(d => ({ dni: d.id, ...d.data() }));
+  const sel = document.getElementById('alumno-select');
+  sel.innerHTML = '<option value="">Selecciona un alumno...</option>' +
+    ALUMNOS.map(a => `<option value="${a.dni}">${a.nombre}</option>`).join('');
+}
+
+// ---------- Vista por día ----------
+const fechaInput = document.getElementById('fecha-input');
+fechaInput.value = hoyStr();
+fechaInput.addEventListener('change', cargarDia);
+
+async function cargarDia(){
+  const fecha = fechaInput.value || hoyStr();
+  const cont = document.getElementById('lista-dia');
+  cont.innerHTML = '<p class="hint">Cargando...</p>';
+
+  const snap = await db.collection('asistencias').where('fecha', '==', fecha).get();
+  const registros = {};
+  snap.forEach(doc => { registros[doc.data().dni] = doc.data(); });
+
+  if(ALUMNOS.length === 0){
+    cont.innerHTML = '<p class="hint">Aún no hay alumnos cargados. Usa "Generar QR" para agregarlos.</p>';
+    return;
+  }
+
+  cont.innerHTML = ALUMNOS.map(a => {
+    const r = registros[a.dni];
+    const estado = r ? r.estado : 'ausente';
+    const hora = r ? r.hora : '—';
+    return `
+      <div class="list-row" style="cursor:pointer" data-dni="${a.dni}" data-nombre="${a.nombre}">
+        <span>${a.nombre}</span>
+        <span>
+          <span class="badge ${estado}">${estado}</span>
+          <span style="color:var(--muted); margin-left:8px;">${hora}</span>
+        </span>
+      </div>
+    `;
+  }).join('');
+
+  cont.querySelectorAll('.list-row').forEach(row => {
+    row.addEventListener('click', () => abrirMenu(row.dataset.dni, row.dataset.nombre, fecha));
+  });
+}
+
+// ---------- Bottom sheet ----------
+const overlay = document.getElementById('menu-overlay');
+let menuCtx = null;
+
+function abrirMenu(dni, nombre, fecha){
+  menuCtx = { dni, nombre, fecha };
+  document.getElementById('menu-nombre').textContent = nombre;
+  document.getElementById('menu-fecha').textContent = fecha;
+  overlay.hidden = false;
+}
+document.getElementById('menu-cerrar').addEventListener('click', () => overlay.hidden = true);
+overlay.addEventListener('click', (e) => { if(e.target === overlay) overlay.hidden = true; });
+
+document.querySelectorAll('.menu-sheet .opt').forEach(opt => {
+  opt.addEventListener('click', async () => {
+    const estado = opt.dataset.estado;
+    const { dni, nombre, fecha } = menuCtx;
+    const docId = `${dni}_${fecha}`;
+    const ref = db.collection('asistencias').doc(docId);
+    if(estado === 'borrar'){
+      await ref.delete();
+    } else if(estado === 'ausente'){
+      // "ausente" significa que no queremos registro (por defecto se ve ausente sin registro)
+      await ref.delete();
+    } else {
+      const existing = await ref.get();
+      await ref.set({
+        dni, nombre, fecha, estado,
+        hora: existing.exists ? existing.data().hora : horaStr(),
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    overlay.hidden = true;
+    if(!tabDia.hidden) cargarDia();
+    if(!tabAlumno.hidden) cargarHistorial();
+  });
+});
+
+// ---------- Vista por alumno ----------
+document.getElementById('alumno-select').addEventListener('change', cargarHistorial);
+
+async function cargarHistorial(){
+  const dni = document.getElementById('alumno-select').value;
+  const cont = document.getElementById('historial-alumno');
+  if(!dni){
+    cont.innerHTML = '<p class="hint">Selecciona un alumno para ver su historial.</p>';
+    return;
+  }
+  cont.innerHTML = '<p class="hint">Cargando...</p>';
+  const snap = await db.collection('asistencias').where('dni', '==', dni).get();
+  if(snap.empty){
+    cont.innerHTML = '<p class="hint">Este alumno todavía no tiene registros.</p>';
+    return;
+  }
+  const rows = snap.docs.map(d => d.data()).sort((a,b) => b.fecha.localeCompare(a.fecha));
+  const nombre = rows[0].nombre;
+  cont.innerHTML = rows.map(r => `
+    <div class="list-row" style="cursor:pointer" data-dni="${r.dni}" data-nombre="${nombre}" data-fecha="${r.fecha}">
+      <span>${r.fecha}</span>
+      <span>
+        <span class="badge ${r.estado}">${r.estado}</span>
+        <span style="color:var(--muted); margin-left:8px;">${r.hora}</span>
+      </span>
+    </div>
+  `).join('');
+  cont.querySelectorAll('.list-row').forEach(row => {
+    row.addEventListener('click', () => abrirMenu(row.dataset.dni, row.dataset.nombre, row.dataset.fecha));
+  });
+}
+</script>
+
+</body>
+</html>
