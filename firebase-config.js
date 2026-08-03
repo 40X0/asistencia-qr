@@ -9,12 +9,12 @@
 // ============================================================
 
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_PROYECTO.firebaseapp.com",
-  projectId: "TU_PROYECTO",
-  storageBucket: "TU_PROYECTO.appspot.com",
-  messagingSenderId: "TU_SENDER_ID",
-  appId: "TU_APP_ID"
+  apiKey: "AIzaSyBj7WG6vE5C5hife0lGc0GSkZFkiCxPEzw",
+  authDomain: "asistencia-colegio-2270e.firebaseapp.com",
+  projectId: "asistencia-colegio-2270e",
+  storageBucket: "asistencia-colegio-2270e.firebasestorage.app",
+  messagingSenderId: "352574400653",
+  appId: "1:352574400653:web:b0385ea5651eb795745ac4"
 };
 
 firebase.initializeApp(firebaseConfig);
